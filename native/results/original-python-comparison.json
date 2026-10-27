@@ -1,0 +1,235 @@
+[
+  {
+    "engine": "python",
+    "position": "start",
+    "mode": "depth4",
+    "wall_seconds": 0.840139,
+    "depth": 4,
+    "nodes": 12880,
+    "nps": 15369,
+    "reported_seconds": 0.838,
+    "score_cp": 42,
+    "pv": [
+      "c2c4",
+      "d7d5",
+      "b1c3",
+      "d5c4"
+    ],
+    "diagnostics": null
+  },
+  {
+    "engine": "python",
+    "position": "start",
+    "mode": "time2s",
+    "wall_seconds": 1.900971,
+    "depth": 4,
+    "nodes": 12880,
+    "nps": 15351,
+    "reported_seconds": 0.839,
+    "score_cp": 42,
+    "pv": [
+      "c2c4",
+      "d7d5",
+      "b1c3",
+      "d5c4"
+    ],
+    "diagnostics": null
+  },
+  {
+    "engine": "python",
+    "position": "middlegame",
+    "mode": "depth4",
+    "wall_seconds": 1.711899,
+    "depth": 4,
+    "nodes": 27025,
+    "nps": 15804,
+    "reported_seconds": 1.71,
+    "score_cp": 19,
+    "pv": [
+      "f3e5",
+      "a7a5",
+      "e5c6",
+      "b7c6"
+    ],
+    "diagnostics": null
+  },
+  {
+    "engine": "python",
+    "position": "middlegame",
+    "mode": "time2s",
+    "wall_seconds": 1.900881,
+    "depth": 4,
+    "nodes": 27025,
+    "nps": 15813,
+    "reported_seconds": 1.709,
+    "score_cp": 19,
+    "pv": [
+      "f3e5",
+      "a7a5",
+      "e5c6",
+      "b7c6"
+    ],
+    "diagnostics": null
+  },
+  {
+    "engine": "python",
+    "position": "endgame",
+    "mode": "depth4",
+    "wall_seconds": 0.243248,
+    "depth": 4,
+    "nodes": 4991,
+    "nps": 20623,
+    "reported_seconds": 0.242,
+    "score_cp": -5,
+    "pv": [
+      "b4f4",
+      "h4g3",
+      "a5b4",
+      "h5b5",
+      "b4a3",
+      "g3f4"
+    ],
+    "diagnostics": null
+  },
+  {
+    "engine": "python",
+    "position": "endgame",
+    "mode": "time2s",
+    "wall_seconds": 1.900793,
+    "depth": 5,
+    "nodes": 11695,
+    "nps": 21302,
+    "reported_seconds": 0.549,
+    "score_cp": 146,
+    "pv": [
+      "b4f4",
+      "h4g3",
+      "f4g4",
+      "g3h2",
+      "a5b4",
+      "h5b5",
+      "b4a3"
+    ],
+    "diagnostics": null
+  },
+  {
+    "engine": "cpp",
+    "position": "start",
+    "mode": "depth4",
+    "wall_seconds": 0.025416,
+    "depth": 4,
+    "nodes": 3899,
+    "nps": 649833,
+    "reported_seconds": 0.006,
+    "score_cp": 42,
+    "pv": [
+      "c2c4",
+      "d7d5",
+      "b1c3",
+      "d5c4"
+    ],
+    "diagnostics": "qnodes 3014 beta_cutoffs 2942 tt_cutoffs 143"
+  },
+  {
+    "engine": "cpp",
+    "position": "start",
+    "mode": "time2s",
+    "wall_seconds": 1.921047,
+    "depth": 7,
+    "nodes": 1105100,
+    "nps": 581631,
+    "reported_seconds": 1.9,
+    "score_cp": 17,
+    "pv": [
+      "d2d4",
+      "g7g6",
+      "c2c4",
+      "f8g7",
+      "b1c3",
+      "d7d6",
+      "h2h3"
+    ],
+    "diagnostics": "qnodes 873957 beta_cutoffs 847619 tt_cutoffs 54073"
+  },
+  {
+    "engine": "cpp",
+    "position": "middlegame",
+    "mode": "depth4",
+    "wall_seconds": 0.051692,
+    "depth": 4,
+    "nodes": 17160,
+    "nps": 591724,
+    "reported_seconds": 0.029,
+    "score_cp": 19,
+    "pv": [
+      "f3e5",
+      "a7a5",
+      "e5c6",
+      "b7c6"
+    ],
+    "diagnostics": "qnodes 14864 beta_cutoffs 13653 tt_cutoffs 261"
+  },
+  {
+    "engine": "cpp",
+    "position": "middlegame",
+    "mode": "time2s",
+    "wall_seconds": 1.919554,
+    "depth": 6,
+    "nodes": 1069198,
+    "nps": 562735,
+    "reported_seconds": 1.9,
+    "score_cp": 25,
+    "pv": [
+      "d1e2",
+      "a7a5",
+      "d3c2",
+      "f6g4",
+      "g1h1",
+      "a8a6"
+    ],
+    "diagnostics": "qnodes 919222 beta_cutoffs 896440 tt_cutoffs 15590"
+  },
+  {
+    "engine": "cpp",
+    "position": "endgame",
+    "mode": "depth4",
+    "wall_seconds": 0.027268,
+    "depth": 4,
+    "nodes": 2149,
+    "nps": 537250,
+    "reported_seconds": 0.004,
+    "score_cp": -5,
+    "pv": [
+      "b4f4",
+      "h4g3",
+      "a5b4",
+      "h5b5",
+      "b4a3",
+      "g3f4"
+    ],
+    "diagnostics": "qnodes 1806 beta_cutoffs 1556 tt_cutoffs 11"
+  },
+  {
+    "engine": "cpp",
+    "position": "endgame",
+    "mode": "time2s",
+    "wall_seconds": 1.919124,
+    "depth": 9,
+    "nodes": 1090839,
+    "nps": 574125,
+    "reported_seconds": 1.9,
+    "score_cp": -5,
+    "pv": [
+      "b4f4",
+      "h4g3",
+      "f4f7",
+      "g3g2",
+      "f7g7",
+      "g2h1",
+      "a5b4",
+      "h5h4",
+      "b4a3"
+    ],
+    "diagnostics": "qnodes 828911 beta_cutoffs 826041 tt_cutoffs 36574"
+  }
+]
