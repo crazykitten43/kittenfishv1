@@ -1,6 +1,4 @@
-#define main kittenfish_training_main
 #include "../nnue/upstream/main.cpp"
-#undef main
 #include <memory>
 struct Evaluator {
     QuantNet net;

@@ -4,11 +4,7 @@ all: build/libkfnnue.so
 build/libkfnnue.so: src/nnue_bridge.cpp nnue/upstream/main.cpp
 	mkdir -p build
 	$(CXX) $(CXXFLAGS) -fPIC -shared $< -o $@
-build/kfnnue: nnue/upstream/main.cpp
-	mkdir -p build
-	$(CXX) $(CXXFLAGS) $< -o $@
-test: all build/kfnnue
-	./build/kfnnue selftest
+test: all
 	.venv/bin/python -m unittest discover -s tests -v
 clean:
 	rm -rf build

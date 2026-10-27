@@ -93,16 +93,16 @@ for the remaining bot settings.
 ## NNUE copied from kittenfishnnue
 
 The **trained** `networks/lichess500k.nnue` installed by setup is copied from the upstream
-`lichess-500k-v1` release, with its published SHA256 verified. The original
-training/evaluation source is preserved at `nnue/upstream/main.cpp`.
+`lichess-500k-v1` release, with its published SHA256 verified. The complete training/evaluation source now lives in
+[kittenfishtraining/v1](https://github.com/crazykitten43/kittenfishtraining/tree/main/v1).
+`nnue/upstream/main.cpp` retains only the inference definitions required by the engine.
 See [provenance](nnue/PROVENANCE.md) for the exact source commit and asset.
 The native bridge updates accumulators incrementally during make/unmake, with
 king-bucket rebuilds and independent states for each ply.
 
 ```sh
 shasum -a 256 networks/lichess500k.nnue
-make build/kfnnue
-./build/kfnnue eval networks/lichess500k.nnue 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+python3 scripts/fetch_network.py
 ```
 
 The custom KFQ1 format is little-endian on supported targets and is incompatible
@@ -115,7 +115,7 @@ the engine reports the failure and uses material scores. Normal setup uses NNUE.
 make test
 ```
 
-Tests run the upstream NNUE gradient/roundtrip/update self-test, compare incremental
+Tests compare incremental
 and fresh model scores for castling, en passant, promotion and king moves, and use
 python-chess's real UCI client for handshake, legal moves, time controls, restricted
 root moves, node limits, stopping, mate and game-over positions. CI repeats these
@@ -135,5 +135,7 @@ controls for your host before enabling fast games.
 Legal move generation and UCI integration testing use
 [python-chess](https://github.com/niklasf/python-chess), copyright Niklas Fiekas
 and contributors, licensed GPL-3.0-or-later. Its source is installed via the pinned
-`chess==1.11.2` dependency. The NNUE source and model originate in your
+`chess==1.11.2` dependency. The complete NNUE trainer is maintained in
+[kittenfishtraining/v1](https://github.com/crazykitten43/kittenfishtraining/tree/main/v1).
+The NNUE source and model originate in your
 [kittenfishnnue repository](https://github.com/crazykitten43/kittenfishnnue).
