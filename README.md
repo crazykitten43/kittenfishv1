@@ -17,7 +17,10 @@ cd kittenfishv1
 Requires Python with venv/pip, Make, and a C++17 compiler (g++/clang++).
 The launcher locates the project's virtual environment, shared library and model
 by absolute path, so it also works when launched from lichess-bot's directory.
-The model is included: no separate weight download is required.
+Setup automatically downloads the exact upstream trained model and verifies its
+published SHA256. A network connection is required on the first setup. If the
+verified model is already present (for example in the downloadable complete
+project archive), no model download is needed.
 
 Example UCI session (wait for bestmove before sending quit):
 
@@ -89,7 +92,7 @@ for the remaining bot settings.
 
 ## NNUE copied from kittenfishnnue
 
-The included **trained** `networks/lichess500k.nnue` is copied from the upstream
+The **trained** `networks/lichess500k.nnue` installed by setup is copied from the upstream
 `lichess-500k-v1` release, with its published SHA256 verified. The original
 training/evaluation source is preserved at `nnue/upstream/main.cpp`.
 See [provenance](nnue/PROVENANCE.md) for the exact source commit and asset.

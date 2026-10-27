@@ -1,0 +1,7 @@
+.venv/
+build/
+__pycache__/
+*.pyc
+config.yml
+test.nnue
+networks/*.nnue
