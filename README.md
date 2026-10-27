@@ -139,3 +139,37 @@ and contributors, licensed GPL-3.0-or-later. Its source is installed via the pin
 [kittenfishtraining/v1](https://github.com/crazykitten43/kittenfishtraining/tree/main/v1).
 The NNUE source and model originate in your
 [kittenfishnnue repository](https://github.com/crazykitten43/kittenfishnnue).
+
+## Search performance diagnostics
+
+Raw NNUE evaluations per second exclude legal move generation, alpha-beta,
+quiescence, make/unmake, accumulator updates and Python/native transfer. Search
+NPS includes those costs; do not compare the two as equivalent workloads.
+
+The engine transfers compact bitboards to the native evaluator, avoids repeated
+terminal move generation, generates quiescence captures/promotions directly, and
+uses a bounded per-search best-move cache for ordering. The cache stores no scores,
+so draw histories are evaluated independently. No full score transposition table
+or selective pruning is implemented.
+
+Run `.venv/bin/python scripts/benchmark.py --depth 4` with the real model to compare
+fixed-depth wall time, node count, score and best move on the same host. NPS alone
+can hide gains from improved ordering. Tests cover reference board transfer,
+special moves, draw/mate priority, quiet promotions and interruption cleanup.
+
+Startup reports `evaluator NNUE ...` on successful loading; failure explicitly
+reports the fallback. Each search reports `search budget_ms ... max_depth ...`.
+Clock budgets are milliseconds: `(remaining - Move Overhead) / movestogo + 0.8 *
+increment`, with a default of 30 moves, capped to remaining time minus overhead.
+`go movetime` also subtracts engine overhead. `go infinite` and `go ponder` disable
+the initial deadline. There is no implicit depth-3 cap.
+
+When a deadline interrupts an iteration, the final info line retains the last
+completed depth/score/PV but includes all nodes and elapsed time. Previously the
+reported work omitted the entire interrupted iteration.
+
+For lichess-bot, inspect `engine.uci_options.go_commands`: depth/nodes/movetime
+there can impose limits. `engine.uci_options.Move Overhead` and the bot's top-level
+`move_overhead` are separate reserves; preserve sufficient network margin. The
+latter defaults to 2000 ms in current lichess-bot. Do not lower reserves merely to
+inflate depth or NPS. Keep `ponder: false` with this single-worker engine.

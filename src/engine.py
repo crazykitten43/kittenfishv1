@@ -18,6 +18,7 @@ class NNUE:
         self.lib.kf_load.restype = ctypes.c_void_p
         self.lib.kf_free.argtypes = [ctypes.c_void_p]
         self.lib.kf_push.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+        self.lib.kf_push_bitboards.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64), ctypes.c_int]
         self.lib.kf_pop.argtypes = [ctypes.c_void_p]
         self.lib.kf_eval.argtypes = [ctypes.c_void_p]
         self.ptr = self.lib.kf_load(str(path).encode())
@@ -25,10 +26,10 @@ class NNUE:
             raise ValueError('cannot load KFQ1 model: ' + str(path))
 
     def push(self, board):
-        squares = (ctypes.c_int * 64)()
-        for sq, piece in board.piece_map().items():
-            squares[sq] = piece.piece_type + (0 if piece.color else 6)
-        if not self.lib.kf_push(self.ptr, squares, int(not board.turn)):
+        bitboards = (ctypes.c_uint64 * 8)(board.pawns, board.knights, board.bishops,
+                                         board.rooks, board.queens, board.kings,
+                                         board.occupied_co[chess.WHITE], board.occupied_co[chess.BLACK])
+        if not self.lib.kf_push_bitboards(self.ptr, bitboards, int(not board.turn)):
             raise RuntimeError('NNUE accumulator update failed')
 
     def pop(self):
@@ -52,6 +53,8 @@ class Search:
         self.board, self.stop, self.net = board, stop, net
         self.deadline, self.limit = deadline, nodes
         self.nodes = 0
+        # Ordering hints only: never reuse scores across draw histories.
+        self.best_moves = {}
 
     def tick(self):
         if self.stop.is_set() or time.monotonic() >= self.deadline or (self.limit is not None and self.nodes >= self.limit):
@@ -65,11 +68,14 @@ class Search:
                     for p in self.board.piece_map().values())
         return score
 
-    def terminal(self, ply):
-        if self.board.is_checkmate():
-            return -MATE + ply
-        if (self.board.is_stalemate() or self.board.is_insufficient_material()
-                or self.board.is_fifty_moves() or self.board.is_repetition(3)):
+    def terminal(self, ply, check=None, moves=None):
+        board = self.board
+        check = board.is_check() if check is None else check
+        has_moves = bool(moves) if moves is not None else any(board.generate_legal_moves())
+        if not has_moves:
+            return -MATE + ply if check else 0
+        if (board.is_insufficient_material() or board.halfmove_clock >= 100
+                or board.is_repetition(3)):
             return 0
         return None
 
@@ -97,10 +103,11 @@ class Search:
 
     def negamax(self, depth, alpha, beta, ply=0):
         self.tick()
-        terminal = self.terminal(ply)
+        check = self.board.is_check()
+        moves = list(self.board.generate_legal_moves()) if depth > 0 or check else None
+        terminal = self.terminal(ply, check, moves)
         if terminal is not None:
             return terminal, []
-        check = self.board.is_check()
         # A hard safety bound limits checking/capture sequences.
         if ply >= 96:
             return self.evaluate(), []
@@ -109,19 +116,29 @@ class Search:
             if stand >= beta:
                 return stand, []
             alpha = max(alpha, stand)
-            moves = [m for m in self.board.legal_moves if self.board.is_capture(m) or m.promotion]
+            moves = list(self.board.generate_legal_captures())
+            # Include quiet promotions without generating all quiet moves.
+            pawns = self.board.pawns & self.board.occupied_co[self.board.turn]
+            promotion_rank = chess.BB_RANK_8 if self.board.turn else chess.BB_RANK_1
+            moves += [m for m in self.board.generate_legal_moves(pawns, promotion_rank)
+                      if m.promotion and not self.board.is_capture(m)]
             best = stand
         else:
-            moves = list(self.board.legal_moves)
             best = -MATE - 1
         pv = []
-        for move in self.ordered(moves):
+        key = self.board._transposition_key() if depth > 0 else None
+        first = self.best_moves.get(key) if key is not None else None
+        for move in self.ordered(moves, first):
             score, tail = self.child(move, depth - 1, alpha, beta, ply + 1)
             if score > best:
                 best, pv = score, [move] + tail
             alpha = max(alpha, score)
             if alpha >= beta:
                 break
+        if key is not None and pv:
+            if len(self.best_moves) >= 65536:
+                self.best_moves.clear()
+            self.best_moves[key] = pv[0]
         return best, pv
 
     def run(self, max_depth=64, roots=None, emit=lambda line: None):
@@ -130,6 +147,7 @@ class Search:
             return None
         best = moves[0]
         started = time.monotonic()
+        completed = None
         if self.net:
             self.net.push(self.board)
         try:
@@ -141,11 +159,18 @@ class Search:
                         if value > score:
                             score, pv = value, [move] + tail
                 except Stopped:
+                    # Include work in the interrupted iteration, but retain only
+                    # the score/PV/depth from the last fully completed one.
+                    ms = max(1, int((time.monotonic() - started) * 1000))
+                    if completed:
+                        done_depth, done_score, done_pv = completed
+                        emit(f'info depth {done_depth} score {done_score} nodes {self.nodes} time {ms} nps {self.nodes * 1000 // ms} pv ' + done_pv)
                     break
                 best = pv[0]
                 ms = max(1, int((time.monotonic() - started) * 1000))
                 score_text = ('mate ' + str((MATE - abs(score) + 1) // 2 * (1 if score > 0 else -1))
                               if abs(score) > 29000 else 'cp ' + str(score))
+                completed = (depth, score_text, ' '.join(m.uci() for m in pv))
                 emit(f'info depth {depth} score {score_text} nodes {self.nodes} time {ms} nps {self.nodes * 1000 // ms} pv ' + ' '.join(m.uci() for m in pv))
                 if abs(score) > 29000:
                     break
@@ -179,6 +204,7 @@ class UCI:
         if self.net:
             self.net.close()
         self.net, self.evalfile = new, pathlib.Path(path)
+        output('info string evaluator NNUE ' + str(self.evalfile))
 
     def halt(self):
         self.stop.set()
@@ -219,6 +245,8 @@ class UCI:
         deadline = time.monotonic() + budget / 1000 if budget is not None and not params.get('infinite') and not params.get('ponder') else float('inf')
         search = Search(self.board.copy(stack=True), self.stop, self.net, deadline, params.get('nodes'))
         self.search = search
+        output('info string search budget_ms ' + (str(round(budget, 2)) if budget is not None else 'unlimited')
+               + ' max_depth ' + str(max(1, min(96, params.get('depth', params.get('mate', 32) * 2)))))
         self.ponder_budget = budget or 1000
         def work():
             try:

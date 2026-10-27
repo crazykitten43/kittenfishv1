@@ -25,3 +25,18 @@ int kf_eval(void* ptr) {
     return int(lround(e.net.eval(e.stack.back())));
 }
 }
+
+// Transfer eight bitboards instead of allocating Python Piece objects or filling
+// 64 ctypes entries on every node. Keep kf_push for compatibility and reference tests.
+extern "C" int kf_push_bitboards(void* ptr, const uint64_t* bb, int stm) {
+    int board[64]{};
+    for(int kind=0; kind<6; ++kind) {
+        uint64_t pieces=bb[kind];
+        while(pieces) {
+            int sq=__builtin_ctzll(pieces);
+            board[sq]=kind+1+((bb[6] & (uint64_t(1)<<sq)) ? 0 : 6);
+            pieces &= pieces-1;
+        }
+    }
+    return kf_push(ptr,board,stm);
+}
