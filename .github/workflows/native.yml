@@ -1,0 +1,10 @@
+name: Native engine offline tests
+on: [push, pull_request]
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/setup.sh
+      - run: make -C native
+      - run: .venv/bin/python native/test_native.py
