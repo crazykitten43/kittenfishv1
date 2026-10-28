@@ -9,7 +9,7 @@ import unittest
 import chess
 import chess.engine
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ENGINE = str(ROOT / 'kittenfish-cpp')
+ENGINE = str(ROOT / 'kittenfish')
 sys.path.insert(0, str(ROOT / 'src'))
 from engine import NNUE
 

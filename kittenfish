@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec "$ROOT/.venv/bin/python" "$ROOT/src/engine.py"
+exec "$ROOT/build/kittenfish-cpp" "$ROOT/networks/lichess500k.nnue"

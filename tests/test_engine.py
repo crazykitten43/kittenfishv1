@@ -47,7 +47,7 @@ class EngineTests(unittest.TestCase):
 
     def test_uci(self):
         with chess.engine.SimpleEngine.popen_uci(str(ROOT / 'kittenfish'), timeout=10) as engine:
-            self.assertEqual(engine.id['name'], 'KittenFish v1')
+            self.assertIn('C++', engine.id['name'])
             engine.ping()
             board = chess.Board()
             result = engine.play(board, chess.engine.Limit(depth=2))

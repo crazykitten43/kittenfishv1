@@ -1,7 +1,8 @@
-# Experimental native KittenFish
+# Native KittenFish
 
-This is a separate engine. The existing Python source, launcher and build target
-are unchanged. It uses the same verified KFQ1 model without retraining.
+This is the main engine, launched by both `./kittenfish` and `./kittenfish-cpp`.
+The original Python engine is preserved on the `legacy/python-search` branch.
+It uses the same verified KFQ1 model without retraining.
 
 Build from the repository root:
 
@@ -32,8 +33,7 @@ Statistics also report qnodes, beta cutoffs and score-table cutoffs.
 UCI: position startpos/fen with moves; go depth, nodes, movetime, clocks,
 increments, movestogo, mate, searchmoves, infinite; stop; isready; ucinewgame;
 quit. Options: Hash (1–1024 MiB, default 32), Move Overhead (default 100 ms),
-EvalFile. Pondering and Chess960 are unsupported. Set ponder false if integrating
-later. NNUE failure exits explicitly; there is no silent material fallback.
+EvalFile. Pondering and Chess960 are unsupported. Set ponder false when integrating with lichess-bot. NNUE failure exits explicitly; there is no silent material fallback.
 Time allocation matches the Python baseline; no extra time is used to inflate
 benchmark results. `go mate` limits depth, rather than performing proof search.
 
