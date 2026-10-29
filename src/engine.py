@@ -166,7 +166,7 @@ class UCI:
         self.stop = threading.Event()
         self.search = None
         self.overhead = 100
-        self.evalfile = ROOT / 'networks/lichess500k.nnue'
+        self.evalfile = ROOT / 'networks/kf100m.nnue'
         self.net = None
         self.load_net(self.evalfile)
 

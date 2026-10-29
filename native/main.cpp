@@ -255,7 +255,7 @@ public:
 };
 int main(int argc,char** argv) {
     try {
-        Engine engine(argc>1?argv[1]:"networks/lichess500k.nnue");std::string line;
+        Engine engine(argc>1?argv[1]:"networks/kf100m.nnue");std::string line;
         while(std::getline(std::cin,line)) {try{if(!engine.command(line))break;}catch(const std::exception& e){say(std::string("info string invalid command ")+e.what());}}
     }catch(const std::exception& e){std::cerr<<"NNUE startup failed: "<<e.what()<<'\n';return 1;}
 }

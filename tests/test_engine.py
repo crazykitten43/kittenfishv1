@@ -13,7 +13,7 @@ from engine import NNUE, Search, MATE
 
 class EngineTests(unittest.TestCase):
     def test_nnue_special_moves(self):
-        net = NNUE(ROOT / 'networks/lichess500k.nnue')
+        net = NNUE(ROOT / 'networks/kf100m.nnue')
         for fen, move in [
             ('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1', 'e1g1'),
             ('4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1', 'e5d6'),

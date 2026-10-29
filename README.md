@@ -21,7 +21,7 @@ cd kittenfishv1
 Requires Python with venv/pip, Make, and a C++17 compiler (g++/clang++).
 The launcher locates the project's virtual environment, shared library and model
 by absolute path, so it also works when launched from lichess-bot's directory.
-Setup automatically downloads the exact upstream trained model and verifies its
+Setup automatically downloads the 100M-position trained model and verifies its
 published SHA256. A network connection is required on the first setup. If the
 verified model is already present (for example in the downloadable complete
 project archive), no model download is needed.
@@ -95,10 +95,16 @@ matchmaking; turn it on yourself when ready. Follow the
 [official configuration reference](https://github.com/lichess-bot-devs/lichess-bot/blob/master/config.yml.default)
 for the remaining bot settings.
 
-## NNUE copied from kittenfishnnue
+## NNUE trained on 100M positions
 
-The **trained** `networks/lichess500k.nnue` installed by setup is copied from the upstream
-`lichess-500k-v1` release, with its published SHA256 verified. The complete training/evaluation source now lives in
+The default `networks/kf100m.nnue` is the best model from a 10-epoch CUDA run
+on 100,000,000 Lichess evaluated positions (99,000,067 training and 999,933
+validation). Setup downloads it from this repository's
+[`nnue-100m-v1` release](https://github.com/crazykitten43/kittenfishv1/releases/tag/nnue-100m-v1)
+and verifies its SHA256. It replaces the previous 500k-position model.
+The best float model, selected at epoch 10, scored validation MSE **63,930.4994 cp²**
+and MAE **145.1062 cp** before quantization. These are validation errors, not an Elo
+or playing-strength measurement. The complete training/evaluation source lives in
 [kittenfishtraining/v1](https://github.com/crazykitten43/kittenfishtraining/tree/main/v1).
 `nnue/upstream/main.cpp` retains only the inference definitions required by the engine.
 See [provenance](nnue/PROVENANCE.md) for the exact source commit and asset.
@@ -106,7 +112,7 @@ The native bridge updates accumulators incrementally during make/unmake, with
 king-bucket rebuilds and independent states for each ply.
 
 ```sh
-shasum -a 256 networks/lichess500k.nnue
+shasum -a 256 networks/kf100m.nnue
 python3 scripts/fetch_network.py
 ```
 

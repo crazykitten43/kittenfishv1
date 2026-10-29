@@ -1,13 +1,13 @@
-"""Fetch the exact upstream NNUE release and verify it before installation."""
+"""Fetch the exact 100M-trained NNUE release and verify it before installation."""
 import hashlib
 import pathlib
 import tempfile
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEST = ROOT / 'networks/lichess500k.nnue'
-URL = 'https://github.com/crazykitten43/kittenfishnnue/releases/download/lichess-500k-v1/lichess500k.nnue'
-SHA256 = '4e44ea059ecad6ed495a19c167d7b426036b9652dcfe73e2372791ddbea39be9'
+DEST = ROOT / 'networks/kf100m.nnue'
+URL = 'https://github.com/crazykitten43/kittenfishv1/releases/download/nnue-100m-v1/kf100m.nnue'
+SHA256 = '95f19b6465c82de79a0924f5b6a2f3343233ea3ded73712f533bd46bf335f819'
 
 
 def digest(path):

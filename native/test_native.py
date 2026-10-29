@@ -46,7 +46,7 @@ class NativeTests(unittest.TestCase):
         for b,moves in zip(boards,rows):self.assertEqual(set(moves),{m.uci() for m in b.legal_moves})
 
     def test_nnue_agrees_with_existing_bridge(self):
-        net = NNUE(ROOT / 'networks/lichess500k.nnue')
+        net = NNUE(ROOT / 'networks/kf100m.nnue')
         rng = random.Random(19)
         boards = [chess.Board(f) for f in [chess.STARTING_FEN,
             'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1',
@@ -80,7 +80,8 @@ class NativeTests(unittest.TestCase):
             board=chess.Board()
             r=e.analyse(board,chess.engine.Limit(depth=4))
             self.assertEqual(r['depth'],4)
-            self.assertEqual(r['score'].pov(chess.WHITE).score(),42)
+            # Starting-position regression for the 100M-position default network.
+            self.assertEqual(r['score'].pov(chess.WHITE).score(),23)
             self.assertEqual(r['pv'][0].uci(),'c2c4')
             for move in r['pv']:
                 self.assertIn(move,board.legal_moves); board.push(move)
