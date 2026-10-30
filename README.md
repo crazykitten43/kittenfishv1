@@ -1,8 +1,8 @@
 # KittenFish v1
 
 The main engine uses C++17 for search, legal moves and incremental NNUE evaluation.
-This promotes `experimental/cpp-search`, the engine currently used by the bot,
-without changing its C++ search implementation. Linux and macOS are supported.
+The native search includes configurable selective alpha-beta heuristics. Linux
+and macOS are supported. See [search features and validation](native/SEARCH.md).
 The original Python engine is preserved on the
 [`legacy/python-search` branch](https://github.com/crazykitten43/kittenfishv1/tree/legacy/python-search).
 Python remains a setup and test dependency; its source is retained for NNUE
@@ -40,7 +40,8 @@ Supported: `uci`, `isready`, `ucinewgame`, `position startpos|fen ... moves ...`
 `go infinite`, `stop`, `setoption`, `quit`. `go mate N` limits the
 search to 2N plies; it is not a dedicated proof search. Search runs on a worker
 so the engine can respond to stop and readiness commands while thinking.
-Info lines report depth, centipawns/mate, nodes, elapsed time, NPS and PV.
+Info lines report completed depth, selective depth, centipawns/mate, nodes,
+elapsed time, NPS and PV.
 No legal moves returns `bestmove 0000`.
 
 UCI options:
@@ -50,6 +51,9 @@ UCI options:
   NNUE load failure exits explicitly.
 
 - `Hash`: transposition table size in MiB (1–1024, default 32).
+- `Null Move Pruning`, `LMR`, `SEE`, `Futility Pruning`, `Aspiration Windows`,
+  `Check Extensions`, `Adaptive Time`: check options, all default true.
+  See [native/SEARCH.md](native/SEARCH.md) for guards and time-budget behavior.
 
 Pondering and Chess960 are unsupported; keep pondering disabled. Only one search
 worker is implemented. Threads and Syzygy options are unsupported.

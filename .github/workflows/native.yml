@@ -8,3 +8,4 @@ jobs:
       - run: ./scripts/setup.sh
       - run: make -C native
       - run: .venv/bin/python native/test_native.py
+      - run: .venv/bin/python native/test_selective.py

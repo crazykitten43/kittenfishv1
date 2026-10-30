@@ -8,6 +8,7 @@ build/libkfnnue.so: src/nnue_bridge.cpp nnue/upstream/main.cpp
 	$(CXX) $(CXXFLAGS) -fPIC -shared $< -o $@
 test: all
 	.venv/bin/python native/test_native.py
+	.venv/bin/python native/test_selective.py
 	.venv/bin/python -m unittest discover -s tests -v
 clean:
 	rm -rf build

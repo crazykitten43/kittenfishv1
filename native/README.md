@@ -22,7 +22,10 @@ A bounded Hash table stores depth-qualified exact/lower/upper scores, with mate
 normalization. Score keys include reversible path history and the halfmove clock
 to avoid reusing results across different repetition contexts. This deliberately
 reduces score-cache sharing; position-only ordering hints are shared more widely.
-No null-move pruning, late-move reductions, futility or SEE/delta pruning yet.
+Selective search adds guarded null-move pruning, LMR, SEE ordering/quiescence
+pruning, futility pruning, aspiration windows and bounded check extensions.
+See [SEARCH.md](SEARCH.md) for all fourteen features, guards, switches and tests.
+Delta pruning is not implemented.
 
 Quiescence searches captures, promotions and every check evasion. There is a
 96-ply safety bound. Threefold, fifty-move and insufficient-material draws are
@@ -34,10 +37,11 @@ UCI: position startpos/fen with moves; go depth, nodes, movetime, clocks,
 increments, movestogo, mate, searchmoves, infinite; stop; isready; ucinewgame;
 quit. Options: Hash (1–1024 MiB, default 32), Move Overhead (default 100 ms),
 EvalFile. Pondering and Chess960 are unsupported. Set ponder false when integrating with lichess-bot. NNUE failure exits explicitly; there is no silent material fallback.
-Time allocation matches the Python baseline; no extra time is used to inflate
-benchmark results. `go mate` limits depth, rather than performing proof search.
+Clock searches use an adaptive soft target and a hard cap bounded by remaining
+time minus Move Overhead. Explicit movetime stays a hard limit. Fixed-time
+benchmarks use identical movetime limits for both versions. `go mate` limits depth, rather than performing proof search.
 
-Offline diagnostics: `eval`, `moves`, `perft N` (0–7), `verify`. Verify compares
+Offline diagnostics: `eval`, `moves`, `perft N` (0–7), `verify`, `see <legal-uci-move>`. Verify compares
 incremental/fresh accumulators for every legal move from the initial diagnostic
 position and a deterministic random continuation. Python tests compare against
 python-chess legal moves and the original C++ NNUE bridge, run known perft

@@ -12,6 +12,8 @@ using Move = chess::Move;
 using Clock = std::chrono::steady_clock;
 constexpr int INF=31000, MATE_SCORE=30000, MAXPLY=96;
 constexpr int values[7]={100,320,330,500,900,0,0};
+#include "see.hpp"
+struct SearchOptions { bool nullmove=true,lmr=true,see=true,futility=true,aspiration=true,extensions=true,adaptive=true; };
 std::mutex output_mutex;
 void say(const std::string& s) { std::lock_guard<std::mutex> lock(output_mutex); std::cout<<s<<std::endl; }
 Position position(const CB& board) {
@@ -20,21 +22,22 @@ Position position(const CB& board) {
     return p;
 }
 uint64_t mix(uint64_t x) { x^=x>>30; x*=0xbf58476d1ce4e5b9ULL; x^=x>>27; x*=0x94d049bb133111ebULL; return x^(x>>31); }
-struct Limits { int depth=64; uint64_t nodes=UINT64_MAX; double ms=-1; bool infinite=false; std::vector<Move> roots; bool restricted=false; };
+struct Limits { int depth=64; uint64_t nodes=UINT64_MAX; double ms=-1,softms=-1; bool infinite=false; std::vector<Move> roots; bool restricted=false; };
 struct Entry { uint64_t key=0; int depth=-1, score=0, bound=0; Move move{0}; };
 struct Halt {};
 struct Search {
-    CB board; const QuantNet& net; std::atomic<bool>& stop; Limits limits;
+    CB board; SearchOptions options; const QuantNet& net; std::atomic<bool>& stop; Limits limits;
     std::vector<QuantNet::State> states;
     std::vector<Entry> table;
     std::unordered_map<uint64_t,Move> hints;
     std::array<std::array<Move,2>,MAXPLY+1> killers{};
     int history[2][64][64]{};
     uint64_t context;
-    uint64_t nodes=0,qnodes=0,cutoffs=0,ttcuts=0;
+    uint64_t nodes=0,qnodes=0,cutoffs=0,ttcuts=0,nullcuts=0,reductions=0,researches=0,futilitycuts=0,seecuts=0,checkextensions=0;
+    int seldepth=0;
     Clock::time_point start,deadline;
-    Search(CB b,const QuantNet& n,std::atomic<bool>& s,Limits l,uint64_t ctx,int hash):
-        board(std::move(b)),net(n),stop(s),limits(l),states(MAXPLY+1),
+    Search(CB b,const QuantNet& n,std::atomic<bool>& s,Limits l,uint64_t ctx,int hash,SearchOptions opt={}):
+        board(std::move(b)),options(opt),net(n),stop(s),limits(l),states(MAXPLY+1),
         table(std::max<size_t>(1,size_t(hash)*1024*1024/sizeof(Entry))),context(ctx) {
         for(auto& k:killers) k={Move(0),Move(0)};
         states[0]=net.start(position(board));
@@ -49,7 +52,7 @@ struct Search {
         int promo=m.typeOf()==Move::PROMOTION?values[int(m.promotionType())]:0;
         if(board.isCapture(m)) {
             int victim=m.typeOf()==Move::ENPASSANT?100:values[int(board.at<chess::PieceType>(m.to()))];
-            return 1000000+victim*10-values[int(board.at<chess::PieceType>(m.from()))]+promo;
+            return (options.see&&static_exchange(board,m)<0?-1000000:1000000)+victim*10-values[int(board.at<chess::PieceType>(m.from()))]+promo;
         }
         if(promo) return 900000+promo;
         if(m==killers[ply][0]) return 800000;
@@ -64,60 +67,100 @@ struct Search {
         for(auto& x:ranked) result.push_back(x.second);
         return result;
     }
-    int child(Move m,int depth,int alpha,int beta,int ply,uint64_t ctx,std::vector<Move>& pv) {
+    int child(Move m,int depth,int alpha,int beta,int ply,uint64_t ctx,std::vector<Move>& pv,int extensions=0,bool nullpath=false) {
         board.makeMove(m);
         try {
             states[ply]=states[ply-1]; net.update(states[ply],position(board));
             uint64_t next=board.halfMoveClock()==0?mix(board.hash()):mix(ctx^board.hash());
-            int score=-search(depth,-beta,-alpha,ply,next,pv);
+            int score=-search(depth,-beta,-alpha,ply,next,pv,true,extensions,nullpath);
             board.unmakeMove(m); return score;
         } catch(...) { board.unmakeMove(m); throw; }
     }
     static int store_score(int score,int ply) {return score>29000?score+ply:score< -29000?score-ply:score;}
     static int read_score(int score,int ply) {return score>29000?score-ply:score< -29000?score+ply:score;}
-    int search(int depth,int alpha,int beta,int ply,uint64_t ctx,std::vector<Move>& pv) {
-        bool q=depth<=0; tick(q); pv.clear();
+    int search(int depth,int alpha,int beta,int ply,uint64_t ctx,std::vector<Move>& pv,
+               bool allowNull=true,int extensions=0,bool nullpath=false) {
+        bool q=depth<=0; tick(q); pv.clear(); seldepth=std::max(seldepth,ply);
         bool check=board.inCheck();
         chess::Movelist list; chess::movegen::legalmoves(list,board);
         if(list.empty()) return check?-MATE_SCORE+ply:0;
-        if(board.isHalfMoveDraw()||board.isInsufficientMaterial()||board.isRepetition(2)) return 0;
+        if(board.isInsufficientMaterial()||(!nullpath&&(board.isHalfMoveDraw()||board.isRepetition(2)))) return 0;
         if(ply>=MAXPLY) return evaluate(ply);
+        if(!q&&check&&options.extensions&&extensions<8) {++depth;++extensions;++checkextensions;}
+        bool pvnode=beta-alpha>1;
         int original_alpha=alpha;
-        // Include reversible path history and clock in score-cache identity.
-        // Position-only hints still share move ordering across transpositions.
+        // Preserve reversible-path identity: score bounds must not cross draw
+        // histories. Position-only hints still transfer move ordering safely.
         uint64_t key=mix(board.hash()^ctx^mix(board.halfMoveClock()+1));
         Entry* slot=&table[key%table.size()];
         Move first(0);
         auto hint=hints.find(board.hash()); if(hint!=hints.end()) first=hint->second;
-        if(!q&&slot->key==key&&slot->depth>=0) {
+        if(!q&&!nullpath&&slot->key==key&&slot->depth>=0) {
             first=slot->move; int score=read_score(slot->score,ply);
-            // Do not truncate PV nodes using cached scores.
-            if(beta==alpha+1&&slot->depth>=depth&&(slot->bound==0||(slot->bound==1&&score>=beta)||(slot->bound==2&&score<=alpha))) {++ttcuts;return score;}
+            if(!pvnode&&slot->depth>=depth&&(slot->bound==0||(slot->bound==1&&score>=beta)||(slot->bound==2&&score<=alpha))) {++ttcuts;return score;}
+        }
+        int staticEval=check?0:evaluate(ply);
+        // Never pass in check, in pawn/sparse endings, near the fifty-move
+        // boundary, or inside an artificial null subtree. Verify deep cutoffs.
+        auto nonpawn=board.us(board.sideToMove()) & ~board.pieces(chess::PieceType::PAWN,chess::PieceType::KING);
+        if(options.nullmove&&allowNull&&!nullpath&&!q&&!pvnode&&!check&&depth>=3&&
+           nonpawn.count()>=2&&board.halfMoveClock()<90&&staticEval>=beta&&std::abs(beta)<28000) {
+            int reduction=2+depth/4;
+            std::vector<Move> ignored; int score;
+            board.makeNullMove();
+            try {
+                states[ply+1]=states[ply]; states[ply+1].p.stm^=1;
+                score=-search(depth-1-reduction,-beta,-beta+1,ply+1,mix(ctx^board.hash()),ignored,false,extensions,true);
+                board.unmakeNullMove();
+            } catch(...) {board.unmakeNullMove();throw;}
+            if(score>=beta) {
+                bool verified=depth<6;
+                if(!verified) verified=search(depth-reduction,beta-1,beta,ply,ctx,ignored,false,extensions,false)>=beta;
+                if(verified) {++nullcuts;return std::min(score,28000);}
+            }
         }
         int best=-INF;
-        if(q&&!check) { best=evaluate(ply); if(best>=beta) {++cutoffs;return best;} alpha=std::max(alpha,best); }
+        if(q&&!check) {best=staticEval;if(best>=beta){++cutoffs;return best;}alpha=std::max(alpha,best);}
         auto moves=ordered(list,first,ply,q,check);
-        Move bestmove(0); bool searched=false;
+        Move bestmove(0); int searched=0;
+        std::vector<Move> quiets;
         for(auto m:moves) {
-            std::vector<Move> tail;
-            int score;
+            bool quiet=!board.isCapture(m)&&m.typeOf()!=Move::PROMOTION;
+            bool givesCheck=board.givesCheck(m)!=chess::CheckType::NO_CHECK;
+            if(q&&!check&&options.see&&!quiet&&m.typeOf()!=Move::PROMOTION&&!givesCheck&&static_exchange(board,m)<0) {++seecuts;continue;}
+            if(options.futility&&!q&&!pvnode&&!check&&searched>0&&depth<=3&&quiet&&!givesCheck&&
+               m!=first&&m!=killers[ply][0]&&m!=killers[ply][1]&&std::abs(alpha)<28000&&staticEval+120*depth<=alpha) {++futilitycuts;continue;}
+            int reduction=0;
+            if(options.lmr&&!q&&!check&&quiet&&!givesCheck&&depth>=3&&searched>=3&&
+               m!=first&&m!=killers[ply][0]&&m!=killers[ply][1]&&
+               history[int(board.sideToMove())][m.from().index()][m.to().index()]<depth*depth*8) {
+                reduction=std::clamp(int(std::log(double(depth))*std::log(double(searched+1))/2),1,std::min(3,depth-2));
+                if(pvnode) reduction=std::max(0,reduction-1);
+            }
+            std::vector<Move> tail; int score;
             if(!q&&searched) {
-                score=child(m,depth-1,alpha,alpha+1,ply+1,ctx,tail);
-                if(score>alpha&&score<beta) score=child(m,depth-1,alpha,beta,ply+1,ctx,tail);
-            } else score=child(m,depth-1,alpha,beta,ply+1,ctx,tail);
-            searched=true;
+                if(reduction) {++reductions;score=child(m,depth-1-reduction,alpha,alpha+1,ply+1,ctx,tail,extensions,nullpath);}
+                if(!reduction||score>alpha) {
+                    if(reduction) ++researches;
+                    score=child(m,depth-1,alpha,alpha+1,ply+1,ctx,tail,extensions,nullpath);
+                }
+                if(score>alpha&&score<beta) {++researches;score=child(m,depth-1,alpha,beta,ply+1,ctx,tail,extensions,nullpath);}
+            } else score=child(m,depth-1,alpha,beta,ply+1,ctx,tail,extensions,nullpath);
+            ++searched;if(quiet) quiets.push_back(m);
             if(score>best) {best=score;bestmove=m;pv=tail;pv.insert(pv.begin(),m);}
             alpha=std::max(alpha,score);
             if(alpha>=beta) {
                 ++cutoffs;
-                if(!q&&!board.isCapture(m)&&m.typeOf()!=Move::PROMOTION) {
-                    if(killers[ply][0]!=m) {killers[ply][1]=killers[ply][0];killers[ply][0]=m;}
-                    auto& h=history[int(board.sideToMove())][m.from().index()][m.to().index()]; h=std::min(600000,h+depth*depth);
+                if(!q&&quiet) {
+                    if(killers[ply][0]!=m){killers[ply][1]=killers[ply][0];killers[ply][0]=m;}
+                    int bonus=std::min(2000,depth*depth*16);
+                    auto update=[&](Move move,int delta){auto& h=history[int(board.sideToMove())][move.from().index()][move.to().index()];h+=delta-h*std::abs(delta)/16384;};
+                    update(m,bonus);for(auto failed:quiets)if(failed!=m)update(failed,-bonus);
                 }
                 break;
             }
         }
-        if(!q&&bestmove.move()) {
+        if(!q&&!nullpath&&bestmove.move()) {
             if(hints.size()>65536) hints.clear();
             hints[board.hash()]=bestmove;
             *slot={key,depth,store_score(best,ply),best>=beta?1:best<=original_alpha?2:0,bestmove};
@@ -127,7 +170,7 @@ struct Search {
     void info(int depth,int score,const std::vector<Move>& pv) {
         auto ms=std::max<int64_t>(1,std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-start).count());
         std::ostringstream out;
-        out<<"info depth "<<depth<<" score ";
+        out<<"info depth "<<depth<<" seldepth "<<seldepth<<" score ";
         if(std::abs(score)>29000) out<<"mate "<<((MATE_SCORE-std::abs(score)+1)/2)*(score>0?1:-1);
         else out<<"cp "<<score;
         out<<" nodes "<<nodes<<" time "<<ms<<" nps "<<nodes*1000/ms<<" pv";
@@ -143,22 +186,43 @@ struct Search {
         if(!roots.empty()&&(board.isHalfMoveDraw()||board.isInsufficientMaterial()||board.isRepetition(2))) {
             info(0,0,{best}); limits.depth=0;
         }
+        int stability=0;
         for(int depth=1;depth<=limits.depth&&!roots.empty();++depth) {
             int score=-INF; std::vector<Move> pv;
             std::stable_sort(roots.begin(),roots.end(),[&](Move a,Move b){return (a==best)>(b==best);});
+            int window=options.aspiration&&depth>=4&&std::abs(lastscore)<28000?25:INF;
             try {
-                for(auto m:roots) {
-                    std::vector<Move> tail;
-                    int value=child(m,depth-1,score,INF,1,context,tail);
-                    if(value>score) {score=value;pv=tail;pv.insert(pv.begin(),m);}
+                while(true) {
+                    int alpha=window==INF?-INF:std::max(-INF,lastscore-window);
+                    int beta=window==INF?INF:std::min(INF,lastscore+window);
+                    int initialAlpha=alpha;score=-INF;pv.clear();int count=0;
+                    for(auto m:roots) {
+                        std::vector<Move> tail;int value;
+                        if(count++) {
+                            value=child(m,depth-1,alpha,alpha+1,1,context,tail);
+                            if(value>alpha&&value<beta)value=child(m,depth-1,alpha,beta,1,context,tail);
+                        } else value=child(m,depth-1,alpha,beta,1,context,tail);
+                        if(value>score){score=value;pv=tail;pv.insert(pv.begin(),m);}
+                        alpha=std::max(alpha,value);if(alpha>=beta)break;
+                    }
+                    if(window==INF||(score>initialAlpha&&score<beta))break;
+                    window=window>=4096?INF:window*2;
                 }
             } catch(const Halt&) {break;}
+            stability=pv[0]==best?stability+1:0;
+            int drop=done?lastscore-score:0;
             best=pv[0]; done=depth;lastscore=score;lastpv=pv;info(done,lastscore,lastpv);
             if(std::abs(score)>29000) break;
+            if(!limits.infinite&&limits.softms>=0) {
+                double factor=options.adaptive?std::clamp(1.5-stability*.15+std::max(0,drop)/100.0,.6,2.5):1;
+                if(roots.size()==1)factor=.2;
+                double elapsed=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
+                if(elapsed>=limits.softms*factor)break;
+            }
         }
         if(limits.infinite) while(!stop.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
         if(done) info(done,lastscore,lastpv);
-        say("info string qnodes "+std::to_string(qnodes)+" beta_cutoffs "+std::to_string(cutoffs)+" tt_cutoffs "+std::to_string(ttcuts));
+        say("info string qnodes "+std::to_string(qnodes)+" beta_cutoffs "+std::to_string(cutoffs)+" tt_cutoffs "+std::to_string(ttcuts)+" null_cutoffs "+std::to_string(nullcuts)+" lmr_reductions "+std::to_string(reductions)+" researches "+std::to_string(researches)+" futility_prunes "+std::to_string(futilitycuts)+" see_prunes "+std::to_string(seecuts)+" check_extensions "+std::to_string(checkextensions));
         say("bestmove "+(best.move()?chess::uci::moveToUci(best):"0000"));
     }
 };
@@ -170,6 +234,7 @@ uint64_t perft(CB& b,int depth) {
 }
 class Engine {
     CB board; QuantNet net; std::thread worker; std::atomic<bool> stop{false};
+    SearchOptions options;
     int overhead=100,hash=32; uint64_t context=mix(board.hash()); std::string model;
     void halt(){stop=true;if(worker.joinable())worker.join();}
     Move legal(const std::string& text) {
@@ -186,6 +251,7 @@ public:
             say("id name KittenFish C++ experimental");say("id author crazykitten43");
             say("option name Move Overhead type spin default 100 min 0 max 5000");
             say("option name Hash type spin default 32 min 1 max 1024");
+            for(auto name:{"Null Move Pruning","LMR","SEE","Futility Pruning","Aspiration Windows","Check Extensions","Adaptive Time"})say(std::string("option name ")+name+" type check default true");
             say("option name EvalFile type string default "+model);say("uciok");
         } else if(cmd=="isready") say("readyok");
         else if(cmd=="stop") halt();
@@ -194,7 +260,15 @@ public:
         else if(cmd=="setoption") {
             halt(); auto at=line.find(" value ");if(at==std::string::npos)throw std::runtime_error("missing value");
             auto name=line.substr(15,at-15), value=line.substr(at+7);
-            if(name=="Hash")hash=std::clamp(std::stoi(value),1,1024);
+            bool enabled=value=="true";
+            if(name=="Null Move Pruning")options.nullmove=enabled;
+            else if(name=="LMR")options.lmr=enabled;
+            else if(name=="SEE")options.see=enabled;
+            else if(name=="Futility Pruning")options.futility=enabled;
+            else if(name=="Aspiration Windows")options.aspiration=enabled;
+            else if(name=="Check Extensions")options.extensions=enabled;
+            else if(name=="Adaptive Time")options.adaptive=enabled;
+            else if(name=="Hash")hash=std::clamp(std::stoi(value),1,1024);
             else if(name=="Move Overhead")overhead=std::clamp(std::stoi(value),0,5000);
             else if(name=="EvalFile") {QuantNet next;next.load(value);net=std::move(next);model=value;}
         } else if(cmd=="position") {
@@ -204,7 +278,8 @@ public:
             else throw std::runtime_error("invalid position");
             context=mix(board.hash());
             if(in>>token) {if(token!="moves")throw std::runtime_error("expected moves");while(in>>token){board.makeMove(legal(token));context=board.halfMoveClock()==0?mix(board.hash()):mix(context^board.hash());}}
-        } else if(cmd=="eval") {halt();auto state=net.start(position(board));say("info string eval "+std::to_string(int(std::lround(net.eval(state)))));}
+        } else if(cmd=="see") {halt();std::string move;in>>move;say("info string see "+std::to_string(static_exchange(board,legal(move))));}
+        else if(cmd=="eval") {halt();auto state=net.start(position(board));say("info string eval "+std::to_string(int(std::lround(net.eval(state)))));}
         else if(cmd=="perft") {halt();int d;if(!(in>>d)||d<0||d>7)throw std::runtime_error("perft depth 0..7");say("info string perft "+std::to_string(perft(board,d)));}
         else if(cmd=="moves") {
             halt();chess::Movelist moves;chess::movegen::legalmoves(moves,board);std::string out="info string moves";
@@ -245,10 +320,14 @@ public:
             auto side=board.sideToMove()==chess::Color::WHITE?"wtime":"btime";
             auto inc=board.sideToMove()==chess::Color::WHITE?"winc":"binc";
             if(p.count("movetime"))l.ms=std::max(1.0,double(p["movetime"])-overhead);
-            else if(p.count(side)){double available=std::max(1.0,double(p[side])-overhead);l.ms=std::min(available,std::max(1.0,available/std::max<uint64_t>(1,p.count("movestogo")?p["movestogo"]:30)+p[inc]*.8));}
+            else if(p.count(side)) {
+                double available=std::max(1.0,double(p[side])-overhead);
+                l.softms=std::min(available,std::max(1.0,available/std::max<uint64_t>(1,p.count("movestogo")?p["movestogo"]:30)+p[inc]*.8));
+                l.ms=options.adaptive?std::min(available,l.softms*4):l.softms;
+            }
             say("info string evaluator NNUE budget_ms "+std::to_string(l.infinite?-1:l.ms));
             stop=false;
-            worker=std::thread([this,l] {try {Search s(board,net,stop,l,context,hash);s.run();}catch(const std::exception& e){say(std::string("info string search failed ")+e.what());say("bestmove 0000");}});
+            worker=std::thread([this,l] {try {Search s(board,net,stop,l,context,hash,options);s.run();}catch(const std::exception& e){say(std::string("info string search failed ")+e.what());say("bestmove 0000");}});
         }
         return true;
     }
