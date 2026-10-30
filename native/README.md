@@ -18,6 +18,8 @@ Everything in search is C++: legal moves, make/unmake, iterative deepening,
 fail-soft alpha-beta, principal variation search, quiescence, ordering and NNUE.
 The single worker supports asynchronous stop/readiness. Move ordering uses
 transposition hints, MVV-LVA captures, promotions, killers and quiet-move history.
+The process retains score tables, position hints and quiet-ordering statistics
+between moves. See [pondering and disk snapshots](PONDERING.md).
 A bounded Hash table stores depth-qualified exact/lower/upper scores, with mate
 normalization. Score keys include reversible path history and the halfmove clock
 to avoid reusing results across different repetition contexts. This deliberately
@@ -36,7 +38,9 @@ Statistics also report qnodes, beta cutoffs and score-table cutoffs.
 UCI: position startpos/fen with moves; go depth, nodes, movetime, clocks,
 increments, movestogo, mate, searchmoves, infinite; stop; isready; ucinewgame;
 quit. Options: Hash (1–1024 MiB, default 32), Move Overhead (default 100 ms),
-EvalFile. Pondering and Chess960 are unsupported. Set ponder false when integrating with lichess-bot. NNUE failure exits explicitly; there is no silent material fallback.
+EvalFile, Ponder, TreeFile, Clear Hash, Save Tree and Load Tree. `go ponder` and
+`ponderhit` implement UCI background search; enable `engine.ponder: true` in
+lichess-bot to use it. Chess960 is unsupported. NNUE failure exits explicitly; there is no silent material fallback.
 Clock searches use an adaptive soft target and a hard cap bounded by remaining
 time minus Move Overhead. Explicit movetime stays a hard limit. Fixed-time
 benchmarks use identical movetime limits for both versions. `go mate` limits depth, rather than performing proof search.
