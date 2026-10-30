@@ -22,6 +22,9 @@ GPU or additional model is required. The Python reference search is unchanged.
 | Check extensions | One ply at checked main-search nodes, capped at eight extensions per line plus absolute stack limit |
 | Time management | Clock-derived soft target, stability/score-drop adjustment, forced-root reduction, independent hard cap bounded by remaining clock minus overhead; explicit movetime remains a hard limit |
 
+Search information now persists across moves, with optional disk snapshots and
+UCI pondering; see [PONDERING.md](PONDERING.md).
+
 The score TT deliberately retains reversible-history context and halfmove clock
 in its key. This is conservative about repetition/fifty-move draws and limits
 score reuse between different reversible paths. Position-only move hints are

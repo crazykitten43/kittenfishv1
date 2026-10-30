@@ -37,7 +37,7 @@ go movetime 1000
 
 Supported: `uci`, `isready`, `ucinewgame`, `position startpos|fen ... moves ...`,
 `go depth|nodes|movetime|wtime|btime|winc|binc|movestogo|mate`, `searchmoves`,
-`go infinite`, `stop`, `setoption`, `quit`. `go mate N` limits the
+`go ponder`, `ponderhit`, `go infinite`, `stop`, `setoption`, `quit`. `go mate N` limits the
 search to 2N plies; it is not a dedicated proof search. Search runs on a worker
 so the engine can respond to stop and readiness commands while thinking.
 Info lines report completed depth, selective depth, centipawns/mate, nodes,
@@ -50,12 +50,16 @@ UCI options:
 - `EvalFile`: path to a custom KFQ1 network; default is the included model.
   NNUE load failure exits explicitly.
 
-- `Hash`: transposition table size in MiB (1–1024, default 32).
+- `Hash`: persistent transposition table size in MiB (1–1024, default 32).
+- `Ponder`: UCI pondering support (default false; managed by the GUI).
+- `TreeFile`: optional disk snapshot path; `Save Tree`, `Load Tree` and
+  `Clear Hash` are button options. See [pondering and persistence](native/PONDERING.md).
 - `Null Move Pruning`, `LMR`, `SEE`, `Futility Pruning`, `Aspiration Windows`,
   `Check Extensions`, `Adaptive Time`: check options, all default true.
   See [native/SEARCH.md](native/SEARCH.md) for guards and time-budget behavior.
 
-Pondering and Chess960 are unsupported; keep pondering disabled. Only one search
+Pondering is supported; set `engine.ponder: true` in lichess-bot to enable it.
+Chess960 is unsupported. Only one search
 worker is implemented. Threads and Syzygy options are unsupported.
 
 ## Connect to lichess-bot

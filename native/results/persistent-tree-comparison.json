@@ -1,0 +1,72 @@
+[
+  {
+    "case": "cold-root",
+    "depth": 7,
+    "nodes": 65885,
+    "seconds": 0.12283362500056683,
+    "pv": [
+      "c2c4",
+      "g8f6",
+      "a2a3",
+      "c7c6",
+      "d2d4",
+      "d7d5",
+      "g1f3"
+    ],
+    "score": 16,
+    "diagnostics": "qnodes 52728 beta_cutoffs 52097 tt_cutoffs 2417 null_cutoffs 256 lmr_reductions 2654 researches 80 futility_prunes 3622 see_prunes 3249 check_extensions 160 persistent_searches 1 retained_before 0"
+  },
+  {
+    "case": "repeated-root",
+    "depth": 7,
+    "nodes": 10904,
+    "seconds": 0.020680542000263813,
+    "pv": [
+      "d2d4",
+      "d7d5",
+      "g1f3",
+      "c7c5",
+      "d4c5",
+      "g8f6",
+      "a2a3"
+    ],
+    "score": 16,
+    "diagnostics": "qnodes 8162 beta_cutoffs 8104 tt_cutoffs 711 null_cutoffs 89 lmr_reductions 352 researches 9 futility_prunes 582 see_prunes 588 check_extensions 29 persistent_searches 2 retained_before 8460"
+  },
+  {
+    "case": "advanced-root-retained",
+    "depth": 7,
+    "nodes": 115269,
+    "seconds": 0.21748654099974374,
+    "pv": [
+      "d2d4",
+      "a7a6",
+      "g1f3",
+      "d7d5",
+      "c4d5",
+      "g7g6",
+      "d1a4",
+      "b7b5"
+    ],
+    "score": 19,
+    "diagnostics": "qnodes 90644 beta_cutoffs 87334 tt_cutoffs 5102 null_cutoffs 409 lmr_reductions 4183 researches 56 futility_prunes 13899 see_prunes 9954 check_extensions 523 persistent_searches 3 retained_before 9901"
+  },
+  {
+    "case": "advanced-root-fresh",
+    "depth": 7,
+    "nodes": 91555,
+    "seconds": 0.17652633399939077,
+    "pv": [
+      "d2d4",
+      "a7a6",
+      "g1f3",
+      "d7d5",
+      "c4d5",
+      "g7g6",
+      "d1a4",
+      "b7b5"
+    ],
+    "score": 19,
+    "diagnostics": "qnodes 72901 beta_cutoffs 70077 tt_cutoffs 3138 null_cutoffs 271 lmr_reductions 3933 researches 71 futility_prunes 13111 see_prunes 7957 check_extensions 353 persistent_searches 1 retained_before 0"
+  }
+]

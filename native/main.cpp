@@ -22,27 +22,38 @@ Position position(const CB& board) {
     return p;
 }
 uint64_t mix(uint64_t x) { x^=x>>30; x*=0xbf58476d1ce4e5b9ULL; x^=x>>27; x*=0x94d049bb133111ebULL; return x^(x>>31); }
-struct Limits { int depth=64; uint64_t nodes=UINT64_MAX; double ms=-1,softms=-1; bool infinite=false; std::vector<Move> roots; bool restricted=false; };
-struct Entry { uint64_t key=0; int depth=-1, score=0, bound=0; Move move{0}; };
+struct Limits { int depth=64; uint64_t nodes=UINT64_MAX; double ms=-1,softms=-1; bool infinite=false,ponder=false,suggestPonder=false; std::vector<Move> roots; bool restricted=false; };
+struct Entry { uint64_t key=0; int depth=-1, score=0, bound=0; Move move{0}; uint32_t generation=0; };
+#include "search_memory.hpp"
 struct Halt {};
 struct Search {
     CB board; SearchOptions options; const QuantNet& net; std::atomic<bool>& stop; Limits limits;
     std::vector<QuantNet::State> states;
-    std::vector<Entry> table;
-    std::unordered_map<uint64_t,Move> hints;
-    std::array<std::array<Move,2>,MAXPLY+1> killers{};
-    int history[2][64][64]{};
+    SearchMemory& memory; SearchControl& control;
+    std::vector<Entry>& table;
+    std::unordered_map<uint64_t,Move>& hints;
+    std::array<std::array<Move,2>,MAXPLY+1>& killers;
+    int (&history)[2][64][64];
     uint64_t context;
     uint64_t nodes=0,qnodes=0,cutoffs=0,ttcuts=0,nullcuts=0,reductions=0,researches=0,futilitycuts=0,seecuts=0,checkextensions=0;
-    int seldepth=0;
-    Clock::time_point start,deadline;
-    Search(CB b,const QuantNet& n,std::atomic<bool>& s,Limits l,uint64_t ctx,int hash,SearchOptions opt={}):
+    int seldepth=0;uint64_t retainedBefore=0;
+    Clock::time_point start,deadline,activeStart;
+    bool clockActive=false;
+    Search(CB b,const QuantNet& n,std::atomic<bool>& s,Limits l,uint64_t ctx,SearchMemory& mem,SearchControl& ctl,SearchOptions opt={}):
         board(std::move(b)),options(opt),net(n),stop(s),limits(l),states(MAXPLY+1),
-        table(std::max<size_t>(1,size_t(hash)*1024*1024/sizeof(Entry))),context(ctx) {
-        for(auto& k:killers) k={Move(0),Move(0)};
+        memory(mem),control(ctl),table(mem.table),hints(mem.hints),killers(mem.killers),history(mem.history),context(ctx) {
+        retainedBefore=memory.count();++memory.searches;
         states[0]=net.start(position(board));
     }
+    void activate_clock() {
+        if(clockActive||control.pondering.load(std::memory_order_acquire))return;
+        auto hit=control.hit_ns.load(std::memory_order_relaxed);
+        activeStart=limits.ponder&&hit?Clock::time_point(std::chrono::duration_cast<Clock::duration>(std::chrono::nanoseconds(hit))):start;
+        deadline=limits.ms>=0&&!limits.infinite?activeStart+std::chrono::milliseconds(int64_t(limits.ms)):Clock::time_point::max();
+        clockActive=true;
+    }
     void tick(bool q) {
+        activate_clock();
         if(stop.load(std::memory_order_relaxed)||nodes>=limits.nodes||Clock::now()>=deadline) throw Halt{};
         ++nodes; qnodes+=q;
     }
@@ -163,7 +174,10 @@ struct Search {
         if(!q&&!nullpath&&bestmove.move()) {
             if(hints.size()>65536) hints.clear();
             hints[board.hash()]=bestmove;
-            *slot={key,depth,store_score(best,ply),best>=beta?1:best<=original_alpha?2:0,bestmove};
+            // A shallow warm-up iteration must not erase a deeper retained bound.
+            if((slot->key==key&&depth>=slot->depth)||
+               (slot->key!=key&&(slot->generation!=uint32_t(memory.searches)||depth+3>=slot->depth)))
+                *slot={key,depth,store_score(best,ply),best>=beta?1:best<=original_alpha?2:0,bestmove,uint32_t(memory.searches)};
         }
         return best;
     }
@@ -178,10 +192,13 @@ struct Search {
         say(out.str());
     }
     void run() {
-        start=Clock::now(); deadline=limits.ms>=0&&!limits.infinite?start+std::chrono::milliseconds(int64_t(limits.ms)):Clock::time_point::max();
+        start=Clock::now(); deadline=Clock::time_point::max();activate_clock();
+        say("info string persistent_search "+std::to_string(memory.searches)+" retained_entries "+std::to_string(retainedBefore));
         chess::Movelist all; chess::movegen::legalmoves(all,board);
         auto roots=limits.restricted?limits.roots:std::vector<Move>(all.begin(),all.end());
         Move best=roots.empty()?Move(0):roots[0];
+        auto previous=hints.find(board.hash());
+        if(previous!=hints.end()&&std::find(roots.begin(),roots.end(),previous->second)!=roots.end())best=previous->second;
         int done=0,lastscore=0; std::vector<Move> lastpv;
         if(!roots.empty()&&(board.isHalfMoveDraw()||board.isInsufficientMaterial()||board.isRepetition(2))) {
             info(0,0,{best}); limits.depth=0;
@@ -211,19 +228,22 @@ struct Search {
             } catch(const Halt&) {break;}
             stability=pv[0]==best?stability+1:0;
             int drop=done?lastscore-score:0;
-            best=pv[0]; done=depth;lastscore=score;lastpv=pv;info(done,lastscore,lastpv);
+            best=pv[0]; done=depth;lastscore=score;lastpv=pv;
+            if(!limits.restricted){if(hints.size()>65536)hints.clear();hints[board.hash()]=best;}
+            info(done,lastscore,lastpv);
             if(std::abs(score)>29000) break;
-            if(!limits.infinite&&limits.softms>=0) {
+            activate_clock();
+            if(clockActive&&!limits.infinite&&limits.softms>=0) {
                 double factor=options.adaptive?std::clamp(1.5-stability*.15+std::max(0,drop)/100.0,.6,2.5):1;
                 if(roots.size()==1)factor=.2;
-                double elapsed=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
+                double elapsed=std::chrono::duration<double,std::milli>(Clock::now()-activeStart).count();
                 if(elapsed>=limits.softms*factor)break;
             }
         }
-        if(limits.infinite) while(!stop.load()) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if(limits.infinite||control.pondering.load()) while(!stop.load()&&(limits.infinite||control.pondering.load())) std::this_thread::sleep_for(std::chrono::milliseconds(2));
         if(done) info(done,lastscore,lastpv);
-        say("info string qnodes "+std::to_string(qnodes)+" beta_cutoffs "+std::to_string(cutoffs)+" tt_cutoffs "+std::to_string(ttcuts)+" null_cutoffs "+std::to_string(nullcuts)+" lmr_reductions "+std::to_string(reductions)+" researches "+std::to_string(researches)+" futility_prunes "+std::to_string(futilitycuts)+" see_prunes "+std::to_string(seecuts)+" check_extensions "+std::to_string(checkextensions));
-        say("bestmove "+(best.move()?chess::uci::moveToUci(best):"0000"));
+        say("info string qnodes "+std::to_string(qnodes)+" beta_cutoffs "+std::to_string(cutoffs)+" tt_cutoffs "+std::to_string(ttcuts)+" null_cutoffs "+std::to_string(nullcuts)+" lmr_reductions "+std::to_string(reductions)+" researches "+std::to_string(researches)+" futility_prunes "+std::to_string(futilitycuts)+" see_prunes "+std::to_string(seecuts)+" check_extensions "+std::to_string(checkextensions)+" persistent_searches "+std::to_string(memory.searches)+" retained_before "+std::to_string(retainedBefore));
+        say("bestmove "+(best.move()?chess::uci::moveToUci(best):"0000")+(limits.suggestPonder&&lastpv.size()>1?" ponder "+chess::uci::moveToUci(lastpv[1]):""));
     }
 };
 uint64_t perft(CB& b,int depth) {
@@ -234,7 +254,8 @@ uint64_t perft(CB& b,int depth) {
 }
 class Engine {
     CB board; QuantNet net; std::thread worker; std::atomic<bool> stop{false};
-    SearchOptions options;
+    SearchOptions options; SearchMemory memory; SearchControl control;
+    bool ponderEnabled=false,treeProtected=false;std::string treeFile;uint64_t modelIdentity=0;
     int overhead=100,hash=32; uint64_t context=mix(board.hash()); std::string model;
     void halt(){stop=true;if(worker.joinable())worker.join();}
     Move legal(const std::string& text) {
@@ -243,34 +264,50 @@ class Engine {
         throw std::runtime_error("illegal move "+text);
     }
 public:
-    explicit Engine(std::string file):model(std::move(file)){net.load(model);}
-    ~Engine(){halt();}
+    explicit Engine(std::string file):model(std::move(file)){net.load(model);modelIdentity=SearchMemory::identity(net);}
+    ~Engine(){halt();if(!treeFile.empty()&&!treeProtected)try{memory.save(treeFile,modelIdentity,SearchMemory::signature(options));}catch(const std::exception& e){say(std::string("info string tree save failed ")+e.what());}}
     bool command(const std::string& line) {
         std::istringstream in(line);std::string cmd;in>>cmd;
         if(cmd=="uci") {
             say("id name KittenFish C++ experimental");say("id author crazykitten43");
             say("option name Move Overhead type spin default 100 min 0 max 5000");
             say("option name Hash type spin default 32 min 1 max 1024");
+            say("option name Ponder type check default false");
+            say("option name TreeFile type string default <empty>");
+            say("option name Clear Hash type button");say("option name Save Tree type button");say("option name Load Tree type button");
             for(auto name:{"Null Move Pruning","LMR","SEE","Futility Pruning","Aspiration Windows","Check Extensions","Adaptive Time"})say(std::string("option name ")+name+" type check default true");
             say("option name EvalFile type string default "+model);say("uciok");
         } else if(cmd=="isready") say("readyok");
         else if(cmd=="stop") halt();
+        else if(cmd=="ponderhit") {if(control.pondering.load())control.hit();}
         else if(cmd=="quit") {halt();return false;}
-        else if(cmd=="ucinewgame") {halt();board=CB();context=mix(board.hash());}
+        else if(cmd=="ucinewgame") {halt();board=CB();context=mix(board.hash());memory.clear();}
         else if(cmd=="setoption") {
-            halt(); auto at=line.find(" value ");if(at==std::string::npos)throw std::runtime_error("missing value");
+            halt();
+            std::string button=line.substr(15);
+            if(button=="Clear Hash"){memory.clear();return true;}
+            if(button=="Save Tree"||button=="Load Tree"){
+                if(treeFile.empty())throw std::runtime_error("set TreeFile first");
+                if(button=="Save Tree")memory.save(treeFile,modelIdentity,SearchMemory::signature(options));
+                else {treeProtected=true;memory.load(treeFile,modelIdentity,SearchMemory::signature(options));}
+                treeProtected=false;return true;
+            }
+            auto at=line.find(" value ");if(at==std::string::npos)throw std::runtime_error("missing value");
             auto name=line.substr(15,at-15), value=line.substr(at+7);
             bool enabled=value=="true";
-            if(name=="Null Move Pruning")options.nullmove=enabled;
+            if(name=="Ponder")ponderEnabled=enabled;
+            else if(name=="TreeFile"){treeFile=value=="<empty>"?"":value;treeProtected=!treeFile.empty()&&std::ifstream(treeFile,std::ios::binary).good();}
+            else if(name=="Null Move Pruning")options.nullmove=enabled;
             else if(name=="LMR")options.lmr=enabled;
             else if(name=="SEE")options.see=enabled;
             else if(name=="Futility Pruning")options.futility=enabled;
             else if(name=="Aspiration Windows")options.aspiration=enabled;
             else if(name=="Check Extensions")options.extensions=enabled;
             else if(name=="Adaptive Time")options.adaptive=enabled;
-            else if(name=="Hash")hash=std::clamp(std::stoi(value),1,1024);
+            else if(name=="Hash"){hash=std::clamp(std::stoi(value),1,1024);memory=SearchMemory(hash);}
             else if(name=="Move Overhead")overhead=std::clamp(std::stoi(value),0,5000);
-            else if(name=="EvalFile") {QuantNet next;next.load(value);net=std::move(next);model=value;}
+            else if(name=="EvalFile") {QuantNet next;next.load(value);net=std::move(next);model=value;modelIdentity=SearchMemory::identity(net);memory.clear();}
+                    if(name!="Ponder"&&name!="TreeFile"&&name!="Move Overhead"&&name!="Adaptive Time"&&name!="Hash")memory.clear();
         } else if(cmd=="position") {
             halt();std::string token;in>>token;
             if(token=="startpos")board=CB();
@@ -302,15 +339,16 @@ public:
             const std::vector<std::string> keys={"depth","nodes","movetime","wtime","btime","winc","binc","movestogo","mate"};
             while(in>>t) {
                 if(t=="infinite")l.infinite=true;
-                else if(t=="ponder")throw std::runtime_error("ponder unsupported; use ponder false");
+                else if(t=="ponder")l.ponder=true;
                 else if(t=="searchmoves") {
                     l.restricted=true;
                     while(in>>t) {
-                        if(std::find(keys.begin(),keys.end(),t)!=keys.end()||t=="infinite")break;
+                        if(std::find(keys.begin(),keys.end(),t)!=keys.end()||t=="infinite"||t=="ponder")break;
                         auto m=legal(t);if(std::find(l.roots.begin(),l.roots.end(),m)==l.roots.end())l.roots.push_back(m);
                     }
                     if(!in)break;
                     if(t=="infinite"){l.infinite=true;continue;}
+                    if(t=="ponder"){l.ponder=true;continue;}
                     uint64_t n;if(!(in>>n))throw std::runtime_error("missing limit");p[t]=n;
                 } else if(std::find(keys.begin(),keys.end(),t)!=keys.end()) {uint64_t n;if(!(in>>n))throw std::runtime_error("missing limit");p[t]=n;}
             }
@@ -326,8 +364,9 @@ public:
                 l.ms=options.adaptive?std::min(available,l.softms*4):l.softms;
             }
             say("info string evaluator NNUE budget_ms "+std::to_string(l.infinite?-1:l.ms));
+            l.suggestPonder=ponderEnabled;control.hit_ns.store(0);control.pondering.store(l.ponder);
             stop=false;
-            worker=std::thread([this,l] {try {Search s(board,net,stop,l,context,hash,options);s.run();}catch(const std::exception& e){say(std::string("info string search failed ")+e.what());say("bestmove 0000");}});
+            worker=std::thread([this,l] {try {Search s(board,net,stop,l,context,memory,control,options);s.run();}catch(const std::exception& e){say(std::string("info string search failed ")+e.what());say("bestmove 0000");}});
         }
         return true;
     }
